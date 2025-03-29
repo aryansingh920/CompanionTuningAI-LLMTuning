@@ -9,7 +9,6 @@ import os
 import re
 import queue
 import threading
-import time
 
 
 class TherapyChatbot:
@@ -34,9 +33,11 @@ class TherapyChatbot:
         self.block_duration = 0.5  # 500ms blocks for low latency
         self.channels = 1
 
-        # Queues for audio processing
+        # Audio accumulation
         self.audio_queue = queue.Queue()
-        self.response_queue = queue.Queue()
+        self.accumulated_audio = []
+        self.is_listening = False
+        self.transcript_ready = threading.Event()
 
         # Fallback Responses
         self.fallback_responses = [
@@ -53,7 +54,8 @@ class TherapyChatbot:
         def callback(indata, frames, time, status):
             if status:
                 print(status)
-            self.audio_queue.put(indata.copy())
+            if self.is_listening:
+                self.audio_queue.put(indata.copy())
 
         with sd.InputStream(
             samplerate=self.sample_rate,
@@ -62,7 +64,32 @@ class TherapyChatbot:
             callback=callback,
             blocksize=int(self.sample_rate * self.block_duration)
         ):
-            sd.sleep(999999)  # Keep thread alive
+            while True:
+                sd.sleep(100)
+
+    def listening_thread(self):
+        """Manage listening state and audio accumulation."""
+        while True:
+            # Start listening
+            self.is_listening = True
+            self.accumulated_audio = []
+            print("\nListening... (Press Enter when done speaking)")
+
+            # Accumulate audio while listening
+            while self.is_listening:
+                try:
+                    audio_block = self.audio_queue.get(timeout=0.1)
+                    self.accumulated_audio.append(audio_block)
+                except queue.Empty:
+                    continue
+
+    def input_thread(self):
+        """Listen for Enter key to stop listening and process transcript."""
+        while True:
+            input()  # Wait for Enter key
+            if self.is_listening:
+                self.is_listening = False
+                self.transcript_ready.set()
 
     def transcribe_audio(self, audio_data):
         """Transcribe audio using Whisper."""
@@ -81,7 +108,7 @@ class TherapyChatbot:
             output = self.model.generate(
                 inputs['input_ids'],
                 attention_mask=inputs['attention_mask'],
-                max_length=200,
+                max_length=100,
                 temperature=0.6,
                 top_p=0.92,
                 repetition_penalty=1.2,
@@ -136,62 +163,58 @@ class TherapyChatbot:
         except Exception as e:
             print(f"Text-to-speech error: {e}")
 
-    def process_thread(self):
-        """Process audio and generate responses."""
-        accumulated_audio = []
-
+    def process_transcript_thread(self):
+        """Process transcripts when ready."""
         while True:
-            try:
-                # Accumulate audio blocks
-                while len(accumulated_audio) < 6:  # Collect ~3 seconds
-                    audio_block = self.audio_queue.get(timeout=1)
-                    accumulated_audio.append(audio_block)
+            # Wait for transcript to be ready
+            self.transcript_ready.wait()
+            self.transcript_ready.clear()
 
+            # Check if we have accumulated audio
+            if self.accumulated_audio:
                 # Combine audio blocks
-                full_audio = np.concatenate(accumulated_audio)
+                full_audio = np.concatenate(self.accumulated_audio)
 
                 # Transcribe
                 transcript = self.transcribe_audio(full_audio)
-                print(f"Transcribed: {transcript}")
-
-                if transcript.strip().lower() in ['exit', 'quit', 'q']:
-                    break
+                print(f"\nTranscribed: {transcript}")
 
                 # Generate response
                 prompt = f"As a professional, empathetic therapist, provide helpful and ethical advice. Focus on understanding the person's concerns without making assumptions.\nquestionText: {transcript} answerText: "
                 response = self.generate_response(prompt)
 
-                print(f"Response: {response}")
+                print(f"\nResponse: {response}")
 
                 # Text-to-speech
                 self.text_to_speech(response)
 
-                # Reset accumulated audio
-                accumulated_audio = []
-
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Processing error: {e}")
-                accumulated_audio = []
-
     def start(self):
         """Start the therapy chatbot."""
         print("\n===== Low-Latency Therapy Chatbot =====")
-        print("Speak naturally. Say 'exit' to quit.")
+        print("Press Enter to start/stop listening.")
 
         # Start audio capture thread
         capture_thread = threading.Thread(
             target=self.audio_capture_thread, daemon=True)
         capture_thread.start()
 
-        # Start processing thread
+        # Start listening thread
+        listening_thread = threading.Thread(
+            target=self.listening_thread, daemon=True)
+        listening_thread.start()
+
+        # Start input thread
+        input_thread = threading.Thread(
+            target=self.input_thread, daemon=True)
+        input_thread.start()
+
+        # Start transcript processing thread
         process_thread = threading.Thread(
-            target=self.process_thread, daemon=True)
+            target=self.process_transcript_thread, daemon=True)
         process_thread.start()
 
         # Keep main thread alive
-        process_thread.join()
+        input_thread.join()
 
 
 def main():
