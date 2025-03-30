@@ -1,3 +1,13 @@
+"""
+Created on 30/03/2025
+
+@author: Aryan
+
+Filename: main.py
+
+Relative Path: main.py
+"""
+
 import os
 import asyncio
 from TherapyChatbot import TherapyChatbot

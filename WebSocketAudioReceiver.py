@@ -1,3 +1,13 @@
+"""
+Created on 30/03/2025
+
+@author: Aryan
+
+Filename: WebSocketAudioReceiver.py
+
+Relative Path: WebSocketAudioReceiver.py
+"""
+
 import os
 import wave
 import asyncio

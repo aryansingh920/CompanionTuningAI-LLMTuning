@@ -1,12 +1,13 @@
 """
-Created on 16/03/2025
+Created on 30/03/2025
 
 @author: Aryan
 
-Filename: main.py
+Filename: train.py
 
-Relative Path: main.py
+Relative Path: train.py
 """
+
 
 import torch
 import datasets
