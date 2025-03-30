@@ -1,45 +1,30 @@
-"""
-Created on 30/03/2025
-
-@author: Aryan
-
-Filename: main.py
-
-Relative Path: main.py
-"""
-
 import os
 import asyncio
 from TherapyChatbot import TherapyChatbot
 from WebSocketAudioReceiver import WebSocketAudioReceiver
 
 
-
-async def watch_and_process(chatbot: TherapyChatbot):
+async def watch_and_process(chatbot: TherapyChatbot, receiver: WebSocketAudioReceiver):
     """
-    Continuously monitors the 'input' folder for any new .wav files named 1.wav, 2.wav, etc.
-    Processes them in ascending order, transcribes, generates response, does TTS,
-    and saves the TTS audio to output/<same_number>.mp3, then removes the input file.
+    Continuously monitors 'input' folder for .wav files (1.wav, 2.wav, etc.),
+    transcribes, calls GPT, does TTS, writes output/<same_number>.mp3, then
+    sends 'RESPONSE_READY_ABS /abs/path/to/the/file.mp3' to the client.
     """
     os.makedirs('output', exist_ok=True)
-
-    processed_files = set()  # Keep track of which files we've processed
+    processed_files = set()
 
     while True:
         all_wav = [f for f in os.listdir('input') if f.endswith('.wav')]
-        # Filter out anything we've already processed
         unprocessed = [f for f in all_wav if f not in processed_files]
 
-        # Sort them numerically by the part before .wav
         def numeric_key(filename):
             try:
                 return int(os.path.splitext(filename)[0])
             except ValueError:
-                return 999999  # If something weird is there
+                return 999999
 
         unprocessed.sort(key=numeric_key)
 
-        # For each unprocessed WAV file in ascending order
         for wav_file in unprocessed:
             input_path = os.path.join('input', wav_file)
             file_stem = os.path.splitext(wav_file)[0]
@@ -58,40 +43,32 @@ async def watch_and_process(chatbot: TherapyChatbot):
             # 3) TTS
             chatbot.text_to_speech(response, output_path)
 
-            # Mark as processed
             processed_files.add(wav_file)
 
-            # 4) Delete the input WAV to "clear" it
+            # 4) Remove the input WAV
             try:
                 os.remove(input_path)
                 print(f"Removed input file: {input_path}")
             except Exception as e:
                 print(f"Error removing {input_path}: {e}")
 
-        # Sleep briefly to avoid tight-looping
+            # 5) Broadcast the absolute path of the MP3 to Unity
+            abs_mp3_path = os.path.abspath(output_path)
+            msg = f"RESPONSE_READY_ABS {abs_mp3_path}"
+            print(f"Broadcasting: {msg}")
+            await receiver.broadcast_message(msg)
+
         await asyncio.sleep(2)
 
 
-# --------------------------------------------------------------------------------
-# Main entry point
-# --------------------------------------------------------------------------------
-
 async def main():
-    # Create the therapy chatbot
     chatbot = TherapyChatbot()
-
-    # Start the audio receiver (WebSocket server)
     receiver = WebSocketAudioReceiver(host='localhost', port=8080)
 
-    # Launch two tasks concurrently:
-    #   1) The WebSocket server
-    #   2) The watch-and-process loop
     server_task = asyncio.create_task(receiver.start_server())
-    process_task = asyncio.create_task(watch_and_process(chatbot))
+    process_task = asyncio.create_task(watch_and_process(chatbot, receiver))
 
-    # Wait for both tasks (the server never ends, nor does the watcher)
     await asyncio.gather(server_task, process_task)
-
 
 if __name__ == "__main__":
     try:

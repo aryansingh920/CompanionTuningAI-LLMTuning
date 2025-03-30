@@ -1,22 +1,15 @@
-"""
-Created on 30/03/2025
-
-@author: Aryan
-
-Filename: WebSocketAudioReceiver.py
-
-Relative Path: WebSocketAudioReceiver.py
-"""
+# WebSocketAudioReceiver.py (updated)
 
 import os
 import wave
 import asyncio
 import websockets
 
+
 class WebSocketAudioReceiver:
     """
-    This class starts a WebSocket server that listens for audio from Unity.
-    We save each START/STOP sequence as a new .wav file named 1.wav, 2.wav, 3.wav, etc.
+    WebSocket server that listens for audio from Unity.
+    Now also supports broadcasting a text message back to the client.
     """
 
     def __init__(self, host='localhost', port=8080):
@@ -25,11 +18,9 @@ class WebSocketAudioReceiver:
         self.recording = False
         self.audio_chunks = []
         self.current_wav_file = None
+        self.connected_clients = set()  # NEW: Track all connected websockets
 
-        # We'll store recordings in ./input
         os.makedirs('input', exist_ok=True)
-
-        # Keep track of how many recordings we have so far (for naming 1.wav, 2.wav, etc.)
         self.file_counter = 0
 
     async def start_server(self):
@@ -39,25 +30,27 @@ class WebSocketAudioReceiver:
 
     async def handle_client(self, websocket, path=None):
         """
-        For each new client connection, we continually listen for text or binary data.
-        Text data is used as control messages: START_RECORDING / STOP_RECORDING
-        Binary data is appended to self.audio_chunks if we're currently recording.
+        For each new client connection, store it in self.connected_clients,
+        then continually listen for text or binary data.
         """
         print(f"Client connected: {websocket.remote_address}")
+        self.connected_clients.add(websocket)
         try:
             while True:
                 message = await websocket.recv()
                 if isinstance(message, str):
-                    # It's a text command
                     self.handle_text_command(message)
                 elif isinstance(message, bytes):
-                    # It's audio data
                     self.process_audio_chunk(message)
         except websockets.ConnectionClosed:
             print("Client disconnected")
         except Exception as e:
             print(f"Error in handle_client: {e}")
         finally:
+            # Remove from connected set
+            if websocket in self.connected_clients:
+                self.connected_clients.remove(websocket)
+            # If still recording, stop
             if self.recording:
                 self.stop_recording()
 
@@ -75,9 +68,7 @@ class WebSocketAudioReceiver:
         if self.recording:
             print("Recording already in progress.")
             return
-        # Bump the file counter for the new file
         self.file_counter += 1
-        # e.g. input/1.wav, input/2.wav, etc.
         self.current_wav_file = f'input/{self.file_counter}.wav'
         self.audio_chunks = []
         self.recording = True
@@ -107,3 +98,20 @@ class WebSocketAudioReceiver:
             wav_file.setframerate(44100)  # 44.1 kHz
             for chunk in self.audio_chunks:
                 wav_file.writeframes(chunk)
+
+    async def broadcast_message(self, message: str):
+        """
+        Helper to send a text message to all connected clients.
+        """
+        disconnected = []
+        for ws in self.connected_clients:
+            try:
+                await ws.send(message)
+            except websockets.ConnectionClosed:
+                disconnected.append(ws)
+            except Exception as e:
+                print(f"Error sending message to a client: {e}")
+        # Remove any clients that disconnected
+        for ws in disconnected:
+            if ws in self.connected_clients:
+                self.connected_clients.remove(ws)

@@ -13,3 +13,5 @@ output
 input
 
 .vscode
+
+__pycache__
