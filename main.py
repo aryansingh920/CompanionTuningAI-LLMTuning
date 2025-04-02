@@ -63,7 +63,7 @@ async def watch_and_process(chatbot: TherapyChatbot, receiver: WebSocketAudioRec
 
 async def main():
     chatbot = TherapyChatbot()
-    receiver = WebSocketAudioReceiver(host='localhost', port=8080)
+    receiver = WebSocketAudioReceiver(host='0.0.0.0', port=8080)
 
     server_task = asyncio.create_task(receiver.start_server())
     process_task = asyncio.create_task(watch_and_process(chatbot, receiver))
