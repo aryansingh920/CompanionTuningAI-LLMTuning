@@ -7,8 +7,8 @@ from WebSocketAudioReceiver import WebSocketAudioReceiver
 async def watch_and_process(chatbot: TherapyChatbot, receiver: WebSocketAudioReceiver):
     """
     Continuously monitors 'input' folder for .wav files (1.wav, 2.wav, etc.),
-    transcribes, calls GPT, does TTS, writes output/<same_number>.mp3, then
-    sends 'RESPONSE_READY_ABS /abs/path/to/the/file.mp3' to the client.
+    transcribes, calls GPT, does TTS, then streams the MP3 audio bytes directly
+    to the connected clients.
     """
     os.makedirs('output', exist_ok=True)
     processed_files = set()
@@ -43,20 +43,24 @@ async def watch_and_process(chatbot: TherapyChatbot, receiver: WebSocketAudioRec
             # 3) TTS
             chatbot.text_to_speech(response, output_path)
 
+            # 4) Read the MP3 file and send its bytes directly
+            try:
+                with open(output_path, 'rb') as mp3_file:
+                    audio_bytes = mp3_file.read()
+                    # Send audio data directly through WebSocket
+                    await receiver.send_audio_data(audio_bytes)
+                    print(f"Streamed {len(audio_bytes)} bytes of audio data")
+            except Exception as e:
+                print(f"Error reading/sending MP3 file: {e}")
+
             processed_files.add(wav_file)
 
-            # 4) Remove the input WAV
+            # 5) Remove the input WAV
             try:
                 os.remove(input_path)
                 print(f"Removed input file: {input_path}")
             except Exception as e:
                 print(f"Error removing {input_path}: {e}")
-
-            # 5) Broadcast the absolute path of the MP3 to Unity
-            abs_mp3_path = os.path.abspath(output_path)
-            msg = f"RESPONSE_READY_ABS {abs_mp3_path}"
-            print(f"Broadcasting: {msg}")
-            await receiver.broadcast_message(msg)
 
         await asyncio.sleep(2)
 

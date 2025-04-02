@@ -1,5 +1,3 @@
-# WebSocketAudioReceiver.py (updated)
-
 import os
 import wave
 import asyncio
@@ -8,8 +6,7 @@ import websockets
 
 class WebSocketAudioReceiver:
     """
-    WebSocket server that listens for audio from Unity.
-    Now also supports broadcasting a text message back to the client.
+    WebSocket server that listens for audio from Unity and can stream audio data back.
     """
 
     def __init__(self, host='localhost', port=8080):
@@ -18,7 +15,7 @@ class WebSocketAudioReceiver:
         self.recording = False
         self.audio_chunks = []
         self.current_wav_file = None
-        self.connected_clients = set()  # NEW: Track all connected websockets
+        self.connected_clients = set()  # Track all connected websockets
 
         os.makedirs('input', exist_ok=True)
         self.file_counter = 0
@@ -111,6 +108,32 @@ class WebSocketAudioReceiver:
                 disconnected.append(ws)
             except Exception as e:
                 print(f"Error sending message to a client: {e}")
+        # Remove any clients that disconnected
+        for ws in disconnected:
+            if ws in self.connected_clients:
+                self.connected_clients.remove(ws)
+
+    async def send_audio_data(self, audio_data: bytes, content_type="audio/mp3"):
+        """
+        Send raw audio bytes to all connected clients with a prefix
+        indicating this is audio data and its format.
+        """
+        prefix = f"AUDIO_DATA:{content_type}:"
+        prefix_bytes = prefix.encode('utf-8')
+
+        # Combine prefix and audio data
+        message = prefix_bytes + audio_data
+
+        disconnected = []
+        for ws in self.connected_clients:
+            try:
+                await ws.send(message)
+                print(f"Sent {len(audio_data)} bytes of audio to client")
+            except websockets.ConnectionClosed:
+                disconnected.append(ws)
+            except Exception as e:
+                print(f"Error sending audio to a client: {e}")
+
         # Remove any clients that disconnected
         for ws in disconnected:
             if ws in self.connected_clients:
