@@ -50,6 +50,13 @@ async def watch_and_process(chatbot: TherapyChatbot, receiver: WebSocketAudioRec
                     # Send audio data directly through WebSocket
                     await receiver.send_audio_data(audio_bytes)
                     print(f"Streamed {len(audio_bytes)} bytes of audio data")
+                    # remove the MP3 file after sending
+                    os.remove(output_path)
+                    print(f"Removed MP3 file: {output_path}")
+            except FileNotFoundError:
+                print(f"MP3 file not found: {output_path}")
+            except PermissionError:
+                print(f"Permission denied for MP3 file: {output_path}")
             except Exception as e:
                 print(f"Error reading/sending MP3 file: {e}")
 
