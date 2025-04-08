@@ -15,3 +15,5 @@ input
 .vscode
 
 __pycache__
+
+training/__pycache__
