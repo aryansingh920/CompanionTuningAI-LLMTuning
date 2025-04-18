@@ -15,5 +15,7 @@ aiortc
 aiohttp
 numpy
 websockets
+peft
+sounddevice 
 git+https://github.com/openai/whisper.git
 
