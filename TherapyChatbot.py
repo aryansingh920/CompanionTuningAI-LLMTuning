@@ -60,10 +60,10 @@ class TherapyChatbot:
     # ---------------------------------------------------------------------
     def generate_response(self, transcript: str) -> str:
         """Generate an empathetic response with multi‑candidate selection and safety filters."""
-        # 1. Add user input to history
+        # 1. Add user input to history
         self.conversation_history.append(f"Person: {transcript}")
 
-        # 2. Build context within token window
+        # 2. Build context within token window
         context, history_tokens = "", 0
         for msg in reversed(self.conversation_history[:-1]):
             tokens = len(self.tokenizer.encode(msg))
@@ -82,7 +82,8 @@ class TherapyChatbot:
 
         try:
             inputs = self.tokenizer(
-                prompt, return_tensors="pt", padding=True, truncation=True).to(self.device)
+                prompt, return_tensors="pt", padding=True, truncation=True
+            ).to(self.device)
 
             num_candidates = 3
             outputs = self.model.generate(
@@ -97,25 +98,29 @@ class TherapyChatbot:
                 do_sample=True,
             )
 
-            # 3. Clean and collect candidates
+            # --- Fix: slice off prompt tokens before decoding ---
+            input_ids = inputs["input_ids"]
+            prompt_len = input_ids.shape[1]
+
             cleaned_candidates: list[str] = []
             for out in outputs:
-                full = self.tokenizer.decode(out, skip_special_tokens=True)
-                resp_part = full.split("AI Assistant:")[-1].strip()
-                cleaned = self._clean_response(resp_part)
+                gen_ids = out[prompt_len:]
+                resp = self.tokenizer.decode(
+                    gen_ids, skip_special_tokens=True).strip()
+                resp = resp.split("\n")[0].strip()
+                cleaned = self._clean_response(resp)
                 if cleaned:
                     cleaned_candidates.append(cleaned)
 
             if not cleaned_candidates:
                 return self._get_fallback_response()
 
-            # 4. Select best
             best = self._select_best_response(cleaned_candidates, transcript)
             final = self._post_process_response(best, transcript)
 
-            # 5. Persist assistant reply
+            # Save assistant reply to history
             self.conversation_history.append(f"AI Assistant: {final}")
-            self.conversation_history = self.conversation_history[-20:]  # cap
+            self.conversation_history = self.conversation_history[-20:]
 
             return final
 
